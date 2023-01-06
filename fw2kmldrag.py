@@ -18,11 +18,17 @@ try:
     print(out_data[:10])
 '''
     rows = []
+    fields = []
     with open(droppedFile, 'r') as csvfile:
         csvreader = csv.reader(csvfile)
-        next(csvreader)
+        fields = next(csvreader)
         for row in csvreader:
             rows.append(row)
+
+    # Figure out which field is alt, lon, and lat
+    latindex = fields.index("LAT")
+    lonindex = fields.index("LON")
+    altindex = fields.index("ALT")
 
     outfile_name = str(droppedFile).replace('.csv', '_fw2kml.kml')
     coords = []
@@ -30,7 +36,7 @@ try:
         if int(row[5]) <= 0:
             print("Bad data, skipping", row[5])
         else:
-            coords.append("{},{},{}".format(row[4], row[3], (int(row[5]) * 0.3048)))
+            coords.append("{},{},{}".format(row[lonindex], row[latindex], (int(row[altindex]) * 0.3048)))
 
     coordstring = ' '.join(coords)
 
