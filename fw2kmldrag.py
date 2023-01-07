@@ -6,8 +6,8 @@ totalflights = 1    # Number of detected flights, used for color coordination (c
 badtimedata = False
 
 try:
-    #droppedFile = Path(sys.argv[1])
-    droppedFile = 'TestCases/timejitter.csv'
+    droppedFile = Path(sys.argv[1])
+    #droppedFile = 'TestCases/timejitter.csv'
     print(droppedFile)
 
     # load csv into memory (top row becomes fields)
