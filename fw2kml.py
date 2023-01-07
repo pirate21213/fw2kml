@@ -58,7 +58,7 @@ try:
         if float(row[5]) <= 0:
             print("Bad data, skipping", row[5])
         else:
-            if badtimedata or row[unixtimeindex]-lasttimeUNIX < 60:  # If 5 minutes go by, consider it a new flight - If theres badtimedata, just let it dump everything into one coordstring
+            if badtimedata or float(row[unixtimeindex])-float(lasttimeUNIX) < 60:  # If 1 minute goes by, consider it a new flight - If theres badtimedata, just let it dump everything into one coordstring
                 coords.append("{},{},{}".format(row[lonindex], row[latindex], (int(row[altindex]) * 0.3048)))
             else:
                 print("New flight detected")
