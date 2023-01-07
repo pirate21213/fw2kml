@@ -1,8 +1,8 @@
-import sys, logging, csv
+import sys, logging, csv, operator
 from pathlib import Path
 try:
     droppedFile = Path(sys.argv[1])
-    #droppedFile = '20220329_POC1_DualCeramic_Ti100-10.6-Fan_CW-PowerData.csv'
+    #droppedFile = 'TestCases/timejitter.csv'
     print(droppedFile)
     '''
     f = open(droppedFile, 'r')
@@ -29,6 +29,11 @@ try:
     latindex = fields.index("LAT")
     lonindex = fields.index("LON")
     altindex = fields.index("ALT")
+    try:
+        unixtimeindex = fields.index("UNIXTIME")
+        rows = sorted(rows, key=operator.itemgetter(unixtimeindex))
+    except ValueError:
+        print("No unixtime field found, will not sort for time jitter.")
 
     outfile_name = str(droppedFile).replace('.csv', '_fw2kml.kml')
     coords = []
