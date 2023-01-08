@@ -18,3 +18,5 @@ Quick tool to convert Featherweight GPS data to a .kml file capable of being ope
 # Not on Windows / Don't want to download a .exe?
 
 - Open the fw2kml.ipynb and run the script on Google Colaboratory!
+or
+- Go to this link and run the notebook https://colab.research.google.com/drive/163zs5Ydud7D-6wkrci9bMTNqqQ8KGR-m?usp=sharing
