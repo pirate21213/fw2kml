@@ -19,4 +19,4 @@ Quick tool to convert Featherweight GPS data to a .kml file capable of being ope
 
 - Open the fw2kml.ipynb and run the script on Google Colaboratory!
 or
-- Go to this link and run the notebook https://colab.research.google.com/drive/163zs5Ydud7D-6wkrci9bMTNqqQ8KGR-m?usp=sharing
+- Go to this link and run the notebook https://colab.research.google.com/drive/1I2dGwhLMUKx1wPfJg8Pk0KMp6fMBAA5s?usp=sharing
