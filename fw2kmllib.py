@@ -1,6 +1,18 @@
+"""
+Library for Arpak @TheRocketryForum's Featherweight to KML Converter
+
+Author(s): Arpak, Aeva
+
+Changelog
+---------
+
+ - March 21st, 2024: Updated Arpak's code for use with a gui
+
+"""
+
 import sys, logging, csv, operator, datetime, time
 from pathlib import Path
-import os.path
+from os import path
 
 class fw2kml():
     """
@@ -68,7 +80,7 @@ class fw2kml():
         outfile_name = None
         while True:
             outfile_name = f"{file_basename}_{num_converted}{new_ext}"
-            if not os.path.isfile(Path(outfile_name)):
+            if not path.isfile(Path(outfile_name)):
                 break
             num_converted += 1
 
