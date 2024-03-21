@@ -18,6 +18,7 @@ class fw2kml():
     """
     fw2kml util class
     """
+
     def __init__(self):
         pass
         #tbh, we can probably make this class a function "convertFile" instead
