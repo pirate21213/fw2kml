@@ -46,6 +46,7 @@ class DragAndDropGui(qtw.QMainWindow):
             else:
                 print(f"Error: Invalid file extension \"{ext}\" dropped on conversion tool. Skipping {url}.")
                 print(f"Allowed EXTS: {PERMITTED_FILE_EXTS}")
+
 if __name__ == "__main__":
     app = qtw.QApplication([])
     gui = DragAndDropGui()
