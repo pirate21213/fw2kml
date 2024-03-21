@@ -1,10 +1,24 @@
 #!/opt/homebrew/bin/python3
 
+"""
+GUI for Arpak @TheRocketryForum's Featherweight to KML Converter
+
+Author: Kayla Tokash (Aeva)
+Date:   March 21st, 2024
+
+Changelog
+---------
+
+ - March 21st, 2024: Initial GUI work
+"""
+
+
 from PyQt5 import QtCore,QtGui
 import PyQt5.QtWidgets as qtw
 import fw2kmllib
 
 WINDOW_TITLE = "fw2kml utility"
+PERMITTED_FILE_EXTS = ["csv"]
 
 class DragAndDropGui(qtw.QMainWindow):
     tool = None
@@ -26,10 +40,12 @@ class DragAndDropGui(qtw.QMainWindow):
 
     def dropEvent(self, event):
         for url in event.mimeData().urls():
-            self.tool.convertFile(url.toLocalFile())
-
-
-
+            ext = url.path().split(".")[-1]
+            if ext in PERMITTED_FILE_EXTS:
+                self.tool.convertFile(url.toLocalFile())
+            else:
+                print(f"Error: Invalid file extension \"{ext}\" dropped on conversion tool. Skipping {url}.")
+                print(f"Allowed EXTS: {PERMITTED_FILE_EXTS}")
 if __name__ == "__main__":
     app = qtw.QApplication([])
     gui = DragAndDropGui()

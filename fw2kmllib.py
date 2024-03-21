@@ -1,6 +1,6 @@
 import sys, logging, csv, operator, datetime, time
 from pathlib import Path
-
+import os.path
 
 class fw2kml():
 
@@ -51,7 +51,16 @@ class fw2kml():
             # ------------------- rows after this point should be sorted by UNIXTIME ----------------------
 
             # Create output .kml in same directory is input .csv
-            outfile_name = str(droppedFile).replace('.csv', '_fw2kml.kml')
+            file_basename = ".".join(str(droppedFile).split(".")[:-1])
+            #outfile_name = str(droppedFile).replace('.csv', '_fw2kml.kml')
+            new_ext = "_fw2kml.kml"
+            num_converted = 0
+            outfile_name = None
+            while True:
+                outfile_name = f"{file_basename}_{num_converted}{new_ext}"
+                if not os.path.isfile(Path(outfile_name)):
+                    break
+                num_converted += 1
             # Create list of coordinates that pass error check
             coords = []
             flightcoords = []
