@@ -167,13 +167,9 @@ class fw2kml():
                 # If 1 minute goes by, consider it a new flight - If theres badtimedata, just
                 # let it dump everything into one coordstring
                 if badtimedata or float(row[unixtimeindex])-float(last_time_unix) < 60:
-                    if export_from_ifip:
-                        # looks like it's a conversion from feet to meters
-                        coords.append("{},{},{}".format(row[lonindex], row[latindex], \
-                            (int(float(row[altindex])) * 0.3048)))
-                    else:
-                        coords.append("{},{},{}".format(row[lonindex], row[latindex], row[altindex]))
-
+                    # looks like it's a conversion from feet to meters
+                    coords.append("{},{},{}".format(row[lonindex], row[latindex], \
+                        (int(float(row[altindex])) * 0.3048)))
                 else:
                     print("New flight detected")
                     totalflights += 1
@@ -216,8 +212,8 @@ class fw2kml():
         for flight_num in range(totalflights):
             # Super lazy way to generate random colors
             # basically doing randhex(0x0, 0xFFFFFF) but in decimal
-            color = str(hex(randint(0,int(0xFFFFFF))))[2:] +\
-                    str(hex(int(255 * FLIGHTPATH_PERCENT_OPAQUE/100)))[2:]
+            color = str(hex(randint(0,int(0xFFFFFF))))[2:].rjust(6, '0') +\
+                    str(hex(int(255 * FLIGHTPATH_PERCENT_OPAQUE/100)))[2:].rjust(2, '0')
             # A convaluted way of starting at 2 and reserving 5 id numbers per style
             id_base = (flight_num + 2) * 5 - 2
             elem_doc.append(self.create_style_elem(
