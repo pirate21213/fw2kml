@@ -90,68 +90,90 @@ class fw2kml():
             csvreader = csv.reader(csvfile)
             fields = next(csvreader)
             for row in csvreader:
+                # Skip rows with column header names
+                if "DATE" in row: continue
                 rows.append(row)
 
-        if "LAT" not in fields or \
-            "LON" not in fields or \
-             "ALT" not in fields:
-            print("Necessary fields for latitude, longitude, and altitude are missing. " +\
-                    "Cannot process file.")
-            return
-
         # Figure out which field is alt, lon, and lat
-        latindex = fields.index("LAT")
-        lonindex = fields.index("LON")
-        altindex = fields.index("ALT")
+        latindex = None
+        lonindex = None
+        altindex = None
+        unixtimeindex = None
+        timeindex = None
+        dateindex = None
 
-        if "UNIXTIME" in fields:
-            # Attempt to find UNIXTIME, first format given to me does not include this field.
-            unixtimeindex = fields.index("UNIXTIME")
+        export_from_ifip = True
+        for column_name in ["LAT", "LON", "ALT"]:
+            if column_name not in fields:
+                export_from_ifip = False
+                break
 
-            rows = sorted(rows, key=operator.itemgetter(unixtimeindex))
-        elif "TIME" in fields and "DATE" in fields:
-            print("No unixtime field found, Looking for 'TIME'")
+        export_blue_raven = not export_from_ifip
+        if not export_from_ifip:
+            for column_name in ["GS Lat", "GS Lon", "GS Alt asl"]:
+                if column_name not in fields:
+                    export_blue_raven = False
+                    break
+
+        if export_from_ifip:
+            latindex = fields.index("LAT")
+            lonindex = fields.index("LON")
+            altindex = fields.index("ALT")
+
+            if "UNIXTIME" in fields:
+                unixtimeindex = fields.index("UNIXTIME")
+            elif "TIME" in fields and "DATE" in fields:
+                timeindex = fields.index("TIME")
+                dateindex = fields.index("DATE")
+                unixtimeindex = fields.index("TIME")
+        elif export_blue_raven:
+            latindex = fields.index("TRACKER Lat")
+            lonindex = fields.index("TRACKER Lon")
+            altindex = fields.index("TRACKER Alt asl")
             timeindex = fields.index("TIME")
             dateindex = fields.index("DATE")
+            unixtimeindex = fields.index("TIME")
 
+        else:
+            print("Cannot process file. Necessary columns are missing/not labeled.")
+            print("Currently only acccepts csv exports from iFIP and Blue Raven.")
+            return
+
+        if timeindex is not None and dateindex is not None:
             # Convert DATE and TIME into UNIXTIME (will reuse the TIME field temporarily)
             for row in rows:
                 # Format date and time into a usable string
                 formatted_datetime = "{}_{}".format(row[dateindex], row[timeindex])
+                print(formatted_datetime)
                 # convert time field into unixtime   Example: 2022-11-05_10:43:00.789 to UNIXTIME
                 row[timeindex] = time.mktime(datetime.datetime.strptime(\
                         formatted_datetime, "%Y-%m-%d_%H:%M:%S.%f").timetuple())
 
-            unixtimeindex = fields.index("TIME")
+        if unixtimeindex is not None:
             rows = sorted(rows, key=operator.itemgetter(unixtimeindex))
         else:
             print("Could not find TIME or DATE, will not sort for time jitter or split flights.")
             badtimedata = True
-
-        # Determine the outputed file's name
-        file_basename = ".".join(str(droppedFile).split(".")[:-1])
-        new_ext = "_fw2kml.kml"
-        num_converted = 0
-        outfile_name = None
-        while True:
-            outfile_name = f"{file_basename}_{num_converted}{new_ext}"
-            if not path.isfile(Path(outfile_name)):
-                break
-            num_converted += 1
 
         # Create list of coordinates that pass error check
         coords = []
         flightcoords = []
         last_time_unix = rows[1][unixtimeindex]   # instantiate last_time_unix to first timestamp
         for row in rows:
-            if float(row[5]) <= 0:
+            # unclear what it's skipping for
+            if export_from_ifip and float(row[5]) <= 0:
                 print("Bad data, skipping", row[5])
             else:
                 # If 1 minute goes by, consider it a new flight - If theres badtimedata, just
                 # let it dump everything into one coordstring
                 if badtimedata or float(row[unixtimeindex])-float(last_time_unix) < 60:
-                    coords.append("{},{},{}".format(row[lonindex], row[latindex], \
-                            (int(row[altindex]) * 0.3048)))
+                    if export_from_ifip:
+                        # looks like it's a conversion from feet to meters
+                        coords.append("{},{},{}".format(row[lonindex], row[latindex], \
+                            (int(float(row[altindex])) * 0.3048)))
+                    else:
+                        coords.append("{},{},{}".format(row[lonindex], row[latindex], row[altindex]))
+
                 else:
                     print("New flight detected")
                     totalflights += 1
@@ -164,6 +186,17 @@ class fw2kml():
         # Convert coordinate list into coordinate string with ' ' as delimiter
         coordstring = ' '.join(coords)
         flightcoords.append(coordstring)
+
+        # Determine the outputed file's name
+        file_basename = ".".join(str(droppedFile).split(".")[:-1])
+        new_ext = "_fw2kml.kml"
+        num_converted = 0
+        outfile_name = None
+        while True:
+            outfile_name = f"{file_basename}_{num_converted}{new_ext}"
+            if not path.isfile(Path(outfile_name)):
+                break
+            num_converted += 1
 
         print(flightcoords)
         kml_tree = ElementTree()
