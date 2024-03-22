@@ -10,9 +10,17 @@ Changelog
 
 """
 
-import sys, logging, csv, operator, datetime, time
+import csv
+import operator
+import datetime
+import time
+from random import randint
+from xml.etree.ElementTree import ElementTree, Element, SubElement
 from pathlib import Path
 from os import path
+
+FLIGHTPATH_PERCENT_OPAQUE = 75
+
 
 class fw2kml():
     """
@@ -23,7 +31,52 @@ class fw2kml():
         pass
         #tbh, we can probably make this class a function "convertFile" instead
 
+    @staticmethod
+    def create_style_elem(line_color, poly_color, style_id, linestyle_id, polystyle_id):
+        elem_style = Element("Style", attrib={"id":f"{style_id}"})
+
+        elem_linestyle = SubElement(elem_style, "LineStyle", attrib={"id":f"{linestyle_id}"})
+        elem_line_color = SubElement(elem_linestyle, "color")
+        elem_line_color.text = line_color
+        elem_line_colormode = SubElement(elem_linestyle, "colorMode")
+        elem_line_colormode.text = "normal"
+
+        elem_polystyle = SubElement(elem_style, "PolyStyle", attrib={"id":f"{polystyle_id}"})
+        elem_poly_color = SubElement(elem_polystyle, "color")
+        elem_poly_color.text = poly_color
+        elem_poly_color = SubElement(elem_polystyle, "colorMode")
+        elem_poly_color.text = "normal"
+        elem_fill = SubElement(elem_polystyle, "fill")
+        elem_fill.text = "1"
+        elem_outline = SubElement(elem_polystyle, "outline")
+        elem_outline.text = "1"
+
+        return elem_style
+
+    @staticmethod
+    def create_flight_plot(placemark_id, flight_id, style_id, linestring_id, coordinates):
+        elem_mark = Element("Placemark", attrib={"id":f"{placemark_id}"})
+        elem_name = SubElement(elem_mark, "name")
+        elem_name.text=f"fw2kml - Flight {flight_id}"
+        style_url = SubElement(elem_mark, "styleUrl")
+        style_url.text=f"#{style_id}"
+
+        elem_lenstr = SubElement(elem_mark, "LineString", attrib={"id":f"{linestring_id}"})
+        extrude = SubElement(elem_lenstr, "extrude")
+        extrude.text = "1"
+        altmode = SubElement(elem_lenstr, "altitudeMode")
+        altmode.text = "absolute"
+        # TODO maybe make this iterate over a list instead
+        coorlist = SubElement(elem_lenstr, "coordinates")
+        coorlist.text = coordinates
+        return elem_mark
+
     def convertFile(self, droppedFile):
+        """
+        convertFile(droppedFile)
+        convert the contents of a file from FeatherWeightCSV to Google Maps KML
+        droppedFile - (str) path to file to be converted
+        """
         # instance variables
         # Number of detected flights, used for color coordination (currently uses time gaps)
         totalflights = 1 
@@ -112,24 +165,111 @@ class fw2kml():
         flightcoords.append(coordstring)
 
         print(flightcoords)
+        kml_tree = ElementTree() 
+        elem_kml = Element("kml", attrib={
+                "xmlns":"http://www.opengis.net/kml/2.2",
+                "xmlns:gx":"http://www.google.com/kml/ext/2.2"
+            }
+        )
+        kml_tree._setroot(elem_kml)
+
+        # Note: I don't think attribute id is needed
+        elem_doc = SubElement(elem_kml, "Document", attrib={"id":"1"})
+        elem_name = SubElement(elem_doc, "Name", attrib={})
+        elem_name.text = "fw2kml FeatherWeight KML"
+
+        for flight_num in range(totalflights):
+            # Super lazy way to generate random colors
+            # basically doing randhex(0x0, 0xFFFFFF) but in decimal
+            color = str(hex(randint(0,int(0xFFFFFF))))[2:] +\
+                    str(hex(int(255 * FLIGHTPATH_PERCENT_OPAQUE/100)))[2:] 
+            # A convaluted way of starting at 2 and reserving 5 id numbers per style
+            id_base = (flight_num + 2) * 5 - 2
+            elem_doc.append(self.create_style_elem(
+                color, color, id_base-2, id_base-1, id_base
+            ))
+            elem_doc.append(self.create_flight_plot(
+                id_base-4, flight_num+1, id_base-2, id_base-3, flightcoords[flight_num]
+            ))
+
+        kml_tree.write(outfile_name)
+
+
+
+
+"""
         with open(outfile_name, "w") as outfile:
             # Open output file and write kml header data and format coordinate
             # string into <coordinates></coordinates>
 
             # KML header
-            outfile.write('<?xml version="1.0" encoding="UTF-8"?>\n<kml xmlns="http://www.opengis.net/kml/2.2" xmlns:gx="http://www.google.com/kml/ext/2.2">\n\t<Document id="1">')
+            #outfile.write('<?xml version="1.0" encoding="UTF-8"?>\n<kml xmlns="http://www.opengis.net/kml/2.2" xmlns:gx="http://www.google.com/kml/ext/2.2">\n\t<Document id="1">')
 
+            
             # Line Styles
-            outfile.write('\n\t\t<Style id="4">\n\t\t\t<LineStyle id="7">\n\t\t\t\t<color>641400F0</color>\n\t\t\t\t<colorMode>normal</colorMode>\n\t\t\t</LineStyle>\n\t\t\t<PolyStyle id="10">\n\t\t\t\t<color>641400F0</color>\n\t\t\t\t<colorMode>normal</colorMode>\n\t\t\t\t<fill>1</fill>\n\t\t\t\t<outline>1</outline>\n\t\t\t</PolyStyle>\n\t\t</Style>')
-            outfile.write('\n\t\t<Style id="5">\n\t\t\t<LineStyle id="8">\n\t\t\t\t<color>6414B40A</color>\n\t\t\t\t<colorMode>normal</colorMode>\n\t\t\t</LineStyle>\n\t\t\t<PolyStyle id="11">\n\t\t\t\t<color>6414B40A</color>\n\t\t\t\t<colorMode>normal</colorMode>\n\t\t\t\t<fill>1</fill>\n\t\t\t\t<outline>1</outline>\n\t\t\t</PolyStyle>\n\t\t</Style>')
-            outfile.write('\n\t\t<Style id="6">\n\t\t\t<LineStyle id="9">\n\t\t\t\t<color>64F01414</color>\n\t\t\t\t<colorMode>normal</colorMode>\n\t\t\t</LineStyle>\n\t\t\t<PolyStyle id="12">\n\t\t\t\t<color>64F01414</color>\n\t\t\t\t<colorMode>normal</colorMode>\n\t\t\t\t<fill>1</fill>\n\t\t\t\t<outline>1</outline>\n\t\t\t</PolyStyle>\n\t\t</Style>')
+            outfile.write('
+<Style id="4">
+<LineStyle id="7">
+<color>641400F0</color>
+<colorMode>normal</colorMode>
+</LineStyle>
+<PolyStyle id="10">
+<color>641400F0</color>
+<colorMode>normal</colorMode>
+<fill>1</fill>
+<outline>1</outline>
+</PolyStyle>
+</Style>')
+            outfile.write('
+<Style id="5">
+<LineStyle id="8">
+<color>6414B40A</color>
+<colorMode>normal</colorMode>
+</LineStyle>
+<PolyStyle id="11">
+<color>6414B40A</color>
+<colorMode>normal</colorMode>
+<fill>1</fill>
+<outline>1</outline>
+</PolyStyle>
+</Style>')
+            outfile.write('
+<Style id="6">
+<LineStyle id="9">
+<color>64F01414</color>
+<colorMode>normal</colorMode>
+</LineStyle>
+<PolyStyle id="12">
+<color>64F01414</color>
+<colorMode>normal</colorMode>
+<fill>1</fill>
+<outline>1</outline>
+</PolyStyle>
+</Style>')
 
             # Coordinates of flights
             for i in range(0, totalflights):
-                outfile.write('\n\t\t<open>1</open>\n\t\t<Placemark id="{}">\n\t\t\t<name>fw2kml - Flight {}</name>\n\t\t\t<styleUrl>#{}</styleUrl>\n\t\t\t<LineString id="{}">\n\t\t\t\t<extrude>1</extrude>\n\t\t\t\t<altitudeMode>absolute</altitudeMode>\n\t\t\t\t<coordinates>{}</coordinates>\n\t\t\t</LineString>\n\t\t</Placemark>'.format(
-                    40+i, i+1, (3+i) % 3 + 4, 60+i, flightcoords[i]))  # Placemark ID, flight ID, Style URL, LineString ID, Coordstring
+                outfile.write('
+<open>1</open>
+<Placemark id="{}">
+<name>fw2kml - Flight {}</name>
+<styleUrl>#{}</styleUrl>
+<LineString id="{}">
+<extrude>1</extrude>
+<altitudeMode>absolute</altitudeMode>
+<coordinates>{}</coordinates>
+</LineString>
+</Placemark>'.format(
+                    40+i,
+ i+1,
+ (3+i) % 3 + 4,
+ 60+i,
+ flightcoords[i]))  # Placemark ID,
+#flight ID,
+# Style URL,
+# LineString ID,
+# Coordstring
 
             # KML footer
             outfile.write('\n\t</Document>\n</kml>')
-
-        print("Done")
+"""

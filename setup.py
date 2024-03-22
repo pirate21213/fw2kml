@@ -6,14 +6,14 @@ import zipfile
 
 """
 NOTE: I have no idea how py2exe works, so I'm winging it. I /think/ that
-the contents of the zip file are what is available so again, I think this
+the contents of the zip file are what is added to the bundle. I think this
 will create two binaries: one for the drag and drop, and one for the gui.
 It's untested...
 """
 
 # Precompile
 ZIP_FILE_PATH="./.packaged_files.zip"
-ZIP_CONTENTS=["fw2kmllib.py"]
+ZIP_CONTENTS=["fw2kmllib.py", "fancyicon.png"]
 
 # Clean old archive if it exists
 if os.path.isfile(ZIP_FILE_PATH):
