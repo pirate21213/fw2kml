@@ -21,7 +21,6 @@ from os import path
 
 FLIGHTPATH_PERCENT_OPAQUE = 75
 
-
 class fw2kml():
     """
     fw2kml util class
@@ -79,7 +78,7 @@ class fw2kml():
         """
         # instance variables
         # Number of detected flights, used for color coordination (currently uses time gaps)
-        totalflights = 1 
+        totalflights = 1
         badtimedata = False
 
         print(f"Processing file: {droppedFile}")
@@ -96,7 +95,8 @@ class fw2kml():
         if "LAT" not in fields or \
             "LON" not in fields or \
              "ALT" not in fields:
-            print("Necessary fields for latitude, longitude, and altitude are missing. Cannot process file.")
+            print("Necessary fields for latitude, longitude, and altitude are missing. " +\
+                    "Cannot process file.")
             return
 
         # Figure out which field is alt, lon, and lat
@@ -116,16 +116,17 @@ class fw2kml():
 
             # Convert DATE and TIME into UNIXTIME (will reuse the TIME field temporarily)
             for row in rows:
-                dt = "{}_{}".format(row[dateindex], row[timeindex]) # Concat date and time into a usable string
-                row[timeindex] = time.mktime(datetime.datetime.strptime(dt, "%Y-%m-%d_%H:%M:%S.%f").timetuple())  # convert time field into unixtime   Example: 2022-11-05_10:43:00.789 to UNIXTIME
-                # print("DATE+TIME: {} to UNIX: {}".format(dt, row[timeindex]))
+                # Format date and time into a usable string
+                formatted_datetime = "{}_{}".format(row[dateindex], row[timeindex])
+                # convert time field into unixtime   Example: 2022-11-05_10:43:00.789 to UNIXTIME
+                row[timeindex] = time.mktime(datetime.datetime.strptime(\
+                        formatted_datetime, "%Y-%m-%d_%H:%M:%S.%f").timetuple())
+
             unixtimeindex = fields.index("TIME")
             rows = sorted(rows, key=operator.itemgetter(unixtimeindex))
         else:
             print("Could not find TIME or DATE, will not sort for time jitter or split flights.")
             badtimedata = True
-
-        # ------------------- rows after this point should be sorted by UNIXTIME ----------------------
 
         # Determine the outputed file's name
         file_basename = ".".join(str(droppedFile).split(".")[:-1])
@@ -165,12 +166,13 @@ class fw2kml():
         flightcoords.append(coordstring)
 
         print(flightcoords)
-        kml_tree = ElementTree() 
+        kml_tree = ElementTree()
         elem_kml = Element("kml", attrib={
                 "xmlns":"http://www.opengis.net/kml/2.2",
                 "xmlns:gx":"http://www.google.com/kml/ext/2.2"
             }
         )
+        # pylint doesn't like this, and it seems to be unrecommended to do this
         kml_tree._setroot(elem_kml)
 
         # Note: I don't think attribute id is needed
@@ -182,7 +184,7 @@ class fw2kml():
             # Super lazy way to generate random colors
             # basically doing randhex(0x0, 0xFFFFFF) but in decimal
             color = str(hex(randint(0,int(0xFFFFFF))))[2:] +\
-                    str(hex(int(255 * FLIGHTPATH_PERCENT_OPAQUE/100)))[2:] 
+                    str(hex(int(255 * FLIGHTPATH_PERCENT_OPAQUE/100)))[2:]
             # A convaluted way of starting at 2 and reserving 5 id numbers per style
             id_base = (flight_num + 2) * 5 - 2
             elem_doc.append(self.create_style_elem(
@@ -193,83 +195,4 @@ class fw2kml():
             ))
 
         kml_tree.write(outfile_name)
-
-
-
-
-"""
-        with open(outfile_name, "w") as outfile:
-            # Open output file and write kml header data and format coordinate
-            # string into <coordinates></coordinates>
-
-            # KML header
-            #outfile.write('<?xml version="1.0" encoding="UTF-8"?>\n<kml xmlns="http://www.opengis.net/kml/2.2" xmlns:gx="http://www.google.com/kml/ext/2.2">\n\t<Document id="1">')
-
-            
-            # Line Styles
-            outfile.write('
-<Style id="4">
-<LineStyle id="7">
-<color>641400F0</color>
-<colorMode>normal</colorMode>
-</LineStyle>
-<PolyStyle id="10">
-<color>641400F0</color>
-<colorMode>normal</colorMode>
-<fill>1</fill>
-<outline>1</outline>
-</PolyStyle>
-</Style>')
-            outfile.write('
-<Style id="5">
-<LineStyle id="8">
-<color>6414B40A</color>
-<colorMode>normal</colorMode>
-</LineStyle>
-<PolyStyle id="11">
-<color>6414B40A</color>
-<colorMode>normal</colorMode>
-<fill>1</fill>
-<outline>1</outline>
-</PolyStyle>
-</Style>')
-            outfile.write('
-<Style id="6">
-<LineStyle id="9">
-<color>64F01414</color>
-<colorMode>normal</colorMode>
-</LineStyle>
-<PolyStyle id="12">
-<color>64F01414</color>
-<colorMode>normal</colorMode>
-<fill>1</fill>
-<outline>1</outline>
-</PolyStyle>
-</Style>')
-
-            # Coordinates of flights
-            for i in range(0, totalflights):
-                outfile.write('
-<open>1</open>
-<Placemark id="{}">
-<name>fw2kml - Flight {}</name>
-<styleUrl>#{}</styleUrl>
-<LineString id="{}">
-<extrude>1</extrude>
-<altitudeMode>absolute</altitudeMode>
-<coordinates>{}</coordinates>
-</LineString>
-</Placemark>'.format(
-                    40+i,
- i+1,
- (3+i) % 3 + 4,
- 60+i,
- flightcoords[i]))  # Placemark ID,
-#flight ID,
-# Style URL,
-# LineString ID,
-# Coordstring
-
-            # KML footer
-            outfile.write('\n\t</Document>\n</kml>')
-"""
+        print(f"Done writing {outfile_name}")
