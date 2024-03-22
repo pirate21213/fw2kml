@@ -19,5 +19,6 @@ or
 
 - Checkout the repository
 - Using terminal, navigate to the checkout directory path
+- Install the requirements using "python -m pip install -r requirements.txt"
 - Start the gui by running "python gui.py"
 
