@@ -28,7 +28,6 @@ class fw2kml():
 
     def __init__(self):
         pass
-        #tbh, we can probably make this class a function "convertFile" instead
 
     @staticmethod
     def create_style_elem(line_color, poly_color, style_id, linestyle_id, polystyle_id):
@@ -65,34 +64,119 @@ class fw2kml():
         extrude.text = "1"
         altmode = SubElement(elem_lenstr, "altitudeMode")
         altmode.text = "absolute"
-        # TODO maybe make this iterate over a list instead
         coorlist = SubElement(elem_lenstr, "coordinates")
         coorlist.text = coordinates
         return elem_mark
 
-    def convertFile(self, droppedFile):
-        """
-        convertFile(droppedFile)
-        convert the contents of a file from FeatherWeightCSV to Google Maps KML
-        droppedFile - (str) path to file to be converted
-        """
-        # instance variables
-        # Number of detected flights, used for color coordination (currently uses time gaps)
+    # TODO Reduce the number of parameters for this, maybe a dictionary for indexes
+    @staticmethod
+    def process_coordinates(data_rows, unixtimeindex, lonindex, latindex, altindex,\
+            export_from_ifip, badtimedata):
+        # Create list of coordinates that pass error check
         totalflights = 1
-        badtimedata = False
+        coords = []
+        flightcoords = []
+        for i, row in enumerate(data_rows):
+            # unclear what it's skipping for
+            if export_from_ifip and float(row[5]) <= 0:
+                print("Bad data, skipping", row[5])
+            else:
+                # If 1 minute goes by, consider it a new flight - If theres badtimedata, just
+                # let it dump everything into one coordstring
+                if badtimedata or i == 0 or float(row[unixtimeindex])-float(last_time_unix) < 60:
+                    # looks like it's a conversion from feet to meters
+                    coords.append("{},{},{}".format(row[lonindex], row[latindex], \
+                        (int(float(row[altindex])) * 0.3048)))
+                else:
+                    totalflights += 1
+                    coordstring = ' '.join(coords)
+                    flightcoords.append(coordstring)
+                    coords = []
 
-        print(f"Processing file: {droppedFile}")
+            last_time_unix = row[unixtimeindex]
 
+        # Convert coordinate list into coordinate string with ' ' as delimiter
+        coordstring = ' '.join(coords)
+        flightcoords.append(coordstring)
+
+        return (totalflights, flightcoords)
+
+    @staticmethod
+    def get_unused_filename(dropped_file):
+        # Determine the outputed file's name
+        file_basename = ".".join(str(dropped_file).split(".")[:-1])
+        new_ext = "_fw2kml.kml"
+        num_converted = 0
+        outfile_name = None
+        while True:
+            outfile_name = f"{file_basename}_{num_converted}{new_ext}"
+            if not path.isfile(Path(outfile_name)):
+                break
+            num_converted += 1
+        return outfile_name
+
+    @staticmethod
+    def get_random_rgba_color(percent_opaque=FLIGHTPATH_PERCENT_OPAQUE):
+        # Super lazy way to generate random colors
+        # basically doing randhex(0x0, 0xFFFFFF) but in decimal
+        color = str(hex(randint(0,int(0xFFFFFF))))[2:].rjust(6, '0') +\
+                str(hex(int(255 * percent_opaque/100)))[2:].rjust(2, '0')
+        return color
+
+    def create_kml_elementtree(self, totalflights, flightcoords):
+        kml_tree = ElementTree()
+        elem_kml = Element("kml", attrib={
+                "xmlns":"http://www.opengis.net/kml/2.2",
+                "xmlns:gx":"http://www.google.com/kml/ext/2.2"
+            }
+        )
+        # pylint doesn't like this, and it seems to be unrecommended to do this
+        kml_tree._setroot(elem_kml)
+
+        # Note: I don't think attribute id is needed
+        elem_doc = SubElement(elem_kml, "Document", attrib={"id":"1"})
+        elem_name = SubElement(elem_doc, "Name", attrib={})
+        elem_name.text = "fw2kml FeatherWeight KML"
+
+        for flight_num in range(totalflights):
+            # A convaluted way of starting at 2 and reserving 5 id numbers per style
+            id_base = (flight_num + 2) * 5 - 2
+            color = self.get_random_rgba_color()
+            elem_doc.append(self.create_style_elem(
+                color, color, id_base-2, id_base-1, id_base
+            ))
+            elem_doc.append(self.create_flight_plot(
+                id_base-4, flight_num+1, id_base-2, id_base-3, flightcoords[flight_num]
+            ))
+
+        return kml_tree
+
+    @staticmethod
+    def load_and_process_csv(filename):
         # load csv into memory (top row becomes fields)
         rows = []
         fields = []
-        with open(droppedFile, 'r') as csvfile:
+        with open(filename, 'r') as csvfile:
             csvreader = csv.reader(csvfile)
             fields = next(csvreader)
             for row in csvreader:
                 # Skip rows with column header names
                 if "DATE" in row: continue
                 rows.append(row)
+
+        return rows, fields
+
+    def convert_file(self, dropped_file):
+        """
+        convertFile(dropped_file)
+        convert the contents of a file from FeatherWeightCSV to Google Maps KML
+        dropped_file - (str) path to file to be converted
+        """
+        # instance variables
+        badtimedata = False
+
+        # Load data from FW csv
+        rows, fields = self.load_and_process_csv(dropped_file)
 
         # Figure out which field is alt, lon, and lat
         latindex = None
@@ -139,12 +223,14 @@ class fw2kml():
             print("Currently only acccepts csv exports from iFIP and Blue Raven.")
             return
 
+        # TODO move this into a helper function... it depends on "rows" at the moment
+        # which is an instance variable in the convertFile function
         if timeindex is not None and dateindex is not None:
             # Convert DATE and TIME into UNIXTIME (will reuse the TIME field temporarily)
             for row in rows:
                 # Format date and time into a usable string
                 formatted_datetime = "{}_{}".format(row[dateindex], row[timeindex])
-                print(formatted_datetime)
+
                 # convert time field into unixtime   Example: 2022-11-05_10:43:00.789 to UNIXTIME
                 row[timeindex] = time.mktime(datetime.datetime.strptime(\
                         formatted_datetime, "%Y-%m-%d_%H:%M:%S.%f").timetuple())
@@ -155,73 +241,15 @@ class fw2kml():
             print("Could not find TIME or DATE, will not sort for time jitter or split flights.")
             badtimedata = True
 
-        # Create list of coordinates that pass error check
-        coords = []
-        flightcoords = []
-        last_time_unix = rows[1][unixtimeindex]   # instantiate last_time_unix to first timestamp
-        for row in rows:
-            # unclear what it's skipping for
-            if export_from_ifip and float(row[5]) <= 0:
-                print("Bad data, skipping", row[5])
-            else:
-                # If 1 minute goes by, consider it a new flight - If theres badtimedata, just
-                # let it dump everything into one coordstring
-                if badtimedata or float(row[unixtimeindex])-float(last_time_unix) < 60:
-                    # looks like it's a conversion from feet to meters
-                    coords.append("{},{},{}".format(row[lonindex], row[latindex], \
-                        (int(float(row[altindex])) * 0.3048)))
-                else:
-                    print("New flight detected")
-                    totalflights += 1
-                    coordstring = ' '.join(coords)
-                    flightcoords.append(coordstring)
-                    coords = []
+        # Create coordinate list (TODO clean up the number of parameters)
+        totalflights, flightcoords = self.process_coordinates(\
+            rows, unixtimeindex, lonindex, latindex, altindex, export_from_ifip, badtimedata)
 
-            last_time_unix = row[unixtimeindex]
+        # Get a new filename
+        outfile_name = self.get_unused_filename(dropped_file)
 
-        # Convert coordinate list into coordinate string with ' ' as delimiter
-        coordstring = ' '.join(coords)
-        flightcoords.append(coordstring)
+        # Create KML file structure in memory
+        kml_tree = self.create_kml_elementtree(totalflights, flightcoords)
 
-        # Determine the outputed file's name
-        file_basename = ".".join(str(droppedFile).split(".")[:-1])
-        new_ext = "_fw2kml.kml"
-        num_converted = 0
-        outfile_name = None
-        while True:
-            outfile_name = f"{file_basename}_{num_converted}{new_ext}"
-            if not path.isfile(Path(outfile_name)):
-                break
-            num_converted += 1
-
-        print(flightcoords)
-        kml_tree = ElementTree()
-        elem_kml = Element("kml", attrib={
-                "xmlns":"http://www.opengis.net/kml/2.2",
-                "xmlns:gx":"http://www.google.com/kml/ext/2.2"
-            }
-        )
-        # pylint doesn't like this, and it seems to be unrecommended to do this
-        kml_tree._setroot(elem_kml)
-
-        # Note: I don't think attribute id is needed
-        elem_doc = SubElement(elem_kml, "Document", attrib={"id":"1"})
-        elem_name = SubElement(elem_doc, "Name", attrib={})
-        elem_name.text = "fw2kml FeatherWeight KML"
-
-        for flight_num in range(totalflights):
-            # Super lazy way to generate random colors
-            # basically doing randhex(0x0, 0xFFFFFF) but in decimal
-            color = str(hex(randint(0,int(0xFFFFFF))))[2:].rjust(6, '0') +\
-                    str(hex(int(255 * FLIGHTPATH_PERCENT_OPAQUE/100)))[2:].rjust(2, '0')
-            # A convaluted way of starting at 2 and reserving 5 id numbers per style
-            id_base = (flight_num + 2) * 5 - 2
-            elem_doc.append(self.create_style_elem(
-                color, color, id_base-2, id_base-1, id_base
-            ))
-            elem_doc.append(self.create_flight_plot(
-                id_base-4, flight_num+1, id_base-2, id_base-3, flightcoords[flight_num]
-            ))
-
+        # Write KML file
         kml_tree.write(outfile_name)
-        print(f"Done writing {outfile_name}")

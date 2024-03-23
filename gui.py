@@ -56,7 +56,7 @@ class DragAndDropGui(qtw.QMainWindow):
         for url in event.mimeData().urls():
             ext = url.path().split(".")[-1]
             if ext in PERMITTED_FILE_EXTS:
-                self.tool.convertFile(url.toLocalFile())
+                self.tool.convert_file(url.toLocalFile())
             else:
                 print(f"Error: Invalid file extension \"{ext}\" " +\
                         f"dropped on conversion tool. Skipping {url}.")
