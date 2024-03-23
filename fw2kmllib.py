@@ -20,6 +20,9 @@ from pathlib import Path
 from os import path
 
 FLIGHTPATH_PERCENT_OPAQUE = 75
+PIN_STYLE_NAME="PUSH_PIN"
+
+feet_to_meters = lambda feet_str: float(feet_str) * 0.3048
 
 class fw2kml():
     """
@@ -68,6 +71,33 @@ class fw2kml():
         coorlist.text = coordinates
         return elem_mark
 
+    @staticmethod
+    def create_pin(event_id, name, coordinates, pin_style=PIN_STYLE_NAME):
+        elem_mark = Element("Placemark", attrib={"id":f"{event_id}"})
+        elem_name = SubElement(elem_mark, "name")
+        elem_name.text = name
+        elem_style = SubElement(elem_mark, "styleUrl")
+        elem_style.text = f"#{pin_style}"
+        elem_point = SubElement(elem_mark, "Point")
+        altmode = SubElement(elem_point, "altitudeMode")
+        altmode.text = "absolute"
+        elem_coor = SubElement(elem_point, "coordinates")
+        elem_coor.text = " ".join(coordinates)
+        return elem_mark
+
+    @staticmethod
+    def generate_pin_style(style_name=PIN_STYLE_NAME, icon_href= \
+            "http://maps.google.com/mapfiles/kml/pushpin/ylw-pushpin.png"):
+        elem_style = Element("Style", attrib={"id":f"{style_name}"})
+        elem_icostyle = SubElement(elem_style, "IconStyle", attrib={"id":f"ICON_{style_name}"})
+        elem_icon = SubElement(elem_icostyle, "Icon")
+        elem_href = SubElement(elem_icon, "href")
+        elem_href.text = icon_href
+        elem_scale = SubElement(elem_icon, "scale")
+        elem_scale.text = "1.0"
+
+        return elem_style
+
     # TODO Reduce the number of parameters for this, maybe a dictionary for indexes
     @staticmethod
     def process_coordinates(data_rows, unixtimeindex, lonindex, latindex, altindex,\
@@ -76,6 +106,9 @@ class fw2kml():
         totalflights = 1
         coords = []
         flightcoords = []
+        max_altitude = []
+        launch_site = []
+        recovery_site = []
         for i, row in enumerate(data_rows):
             # unclear what it's skipping for
             if export_from_ifip and float(row[5]) <= 0:
@@ -84,22 +117,44 @@ class fw2kml():
                 # If 1 minute goes by, consider it a new flight - If theres badtimedata, just
                 # let it dump everything into one coordstring
                 if badtimedata or i == 0 or float(row[unixtimeindex])-float(last_time_unix) < 60:
-                    # looks like it's a conversion from feet to meters
-                    coords.append("{},{},{}".format(row[lonindex], row[latindex], \
-                        (int(float(row[altindex])) * 0.3048)))
+                    altitude_meters = str(feet_to_meters(row[altindex]))
+                    coords.append("{},{},{}".format(row[lonindex], row[latindex], altitude_meters))
+
+                    # Using first data point as launch site location for first flight
+                    if i == 0:
+                        launch_site.append((row[lonindex], row[latindex], row[altindex]))
+
+                    # Checking for apogee
+                    if len(max_altitude) < totalflights:
+                        max_altitude.append((row[lonindex], row[latindex], row[altindex]))
+                    elif float(max_altitude[totalflights-1][2]) < float(row[altindex]):
+                        max_altitude[totalflights-1] = (row[lonindex], row[latindex], row[altindex])
                 else:
+                    # Use last data point as recovery site location
+                    recovery_site.append((data_rows[i-1][lonindex],\
+                            data_rows[i-1][latindex], data_rows[i-1][altindex]))
+
+                    # Iterate flight data
                     totalflights += 1
                     coordstring = ' '.join(coords)
                     flightcoords.append(coordstring)
                     coords = []
 
+                    # Add new launch site
+                    launch_site.append((row[lonindex], row[latindex], row[altindex]))
+
             last_time_unix = row[unixtimeindex]
+
+        # Once we leave the loop block we have to do this too for the last flight in file
+        recovery_site.append((row[lonindex], row[latindex], row[altindex]))
 
         # Convert coordinate list into coordinate string with ' ' as delimiter
         coordstring = ' '.join(coords)
         flightcoords.append(coordstring)
 
-        return (totalflights, flightcoords)
+        events = {"launch_site":launch_site,"apogee":max_altitude,"recovery_site":recovery_site}
+
+        return (totalflights, flightcoords, events)
 
     @staticmethod
     def get_unused_filename(dropped_file):
@@ -123,7 +178,7 @@ class fw2kml():
                 str(hex(int(255 * percent_opaque/100)))[2:].rjust(2, '0')
         return color
 
-    def create_kml_elementtree(self, totalflights, flightcoords):
+    def create_kml_elementtree(self, totalflights, flightcoords, events):
         kml_tree = ElementTree()
         elem_kml = Element("kml", attrib={
                 "xmlns":"http://www.opengis.net/kml/2.2",
@@ -137,17 +192,35 @@ class fw2kml():
         elem_doc = SubElement(elem_kml, "Document", attrib={"id":"1"})
         elem_name = SubElement(elem_doc, "Name", attrib={})
         elem_name.text = "fw2kml FeatherWeight KML"
+        elem_doc.append(self.generate_pin_style())
 
         for flight_num in range(totalflights):
             # A convaluted way of starting at 2 and reserving 5 id numbers per style
+            flight_id = flight_num+1
             id_base = (flight_num + 2) * 5 - 2
             color = self.get_random_rgba_color()
             elem_doc.append(self.create_style_elem(
                 color, color, id_base-2, id_base-1, id_base
             ))
             elem_doc.append(self.create_flight_plot(
-                id_base-4, flight_num+1, id_base-2, id_base-3, flightcoords[flight_num]
+                id_base-4, flight_id, id_base-2, id_base-3, flightcoords[flight_num]
             ))
+
+            launch_site = events["launch_site"][flight_num]
+            elem_doc.append(self.create_pin(f"launchsite_{flight_id}",\
+                f"Flight #{flight_id} Launch Site",\
+                (str(launch_site[0]), str(launch_site[1]), str(feet_to_meters(launch_site[2])))))
+
+            apogee = events["apogee"][flight_num]
+            apogee_alt_feet = float(apogee[2]) - float(launch_site[2])
+            elem_doc.append(self.create_pin(f"launchsite_{flight_id}",\
+                f"Flight #{flight_id} Apogee ({apogee_alt_feet}ft)",\
+                (str(apogee[0]), str(apogee[1]), str(feet_to_meters(apogee[2])))))
+
+            recovery_site = events["recovery_site"][flight_num]
+            elem_doc.append(self.create_pin(f"recoverysite_{flight_id}",\
+                f"Flight #{flight_id} Recovery Site", (str(recovery_site[0]), \
+                str(recovery_site[1]), str(feet_to_meters(recovery_site[2])))))
 
         return kml_tree
 
@@ -242,14 +315,14 @@ class fw2kml():
             badtimedata = True
 
         # Create coordinate list (TODO clean up the number of parameters)
-        totalflights, flightcoords = self.process_coordinates(\
+        totalflights, flightcoords, events = self.process_coordinates(\
             rows, unixtimeindex, lonindex, latindex, altindex, export_from_ifip, badtimedata)
 
         # Get a new filename
         outfile_name = self.get_unused_filename(dropped_file)
 
         # Create KML file structure in memory
-        kml_tree = self.create_kml_elementtree(totalflights, flightcoords)
+        kml_tree = self.create_kml_elementtree(totalflights, flightcoords, events)
 
         # Write KML file
         kml_tree.write(outfile_name)
