@@ -21,4 +21,4 @@ or
 - Using terminal, navigate to the checkout directory path
 - Install the requirements using "python -m pip install -r requirements.txt"
 - Start the gui by running "python gui.py"
-
+- Drag and drop files from the file browser, and it will accept multiple files. 
