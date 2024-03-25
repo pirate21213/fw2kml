@@ -171,7 +171,8 @@ class fw2kml():
                                 vert_speed[-1][-1]) > TRIGGER_ACCEL_VERT_RECOVERY_FPS:
                             decent_speed_changed = True
                         elif last_recovery_detected is not None and\
-                            i - last_recovery_detected[0] > RD_CHECK_ROWS:
+                            (i - last_recovery_detected[0] > RD_CHECK_ROWS or\
+                            i == len(data_rows) - 1):
                             # Parachutes are finicky (sp?) so it's best to check a few rows first
                             recovery_deployments[-1].append(last_recovery_detected[1])
                             last_recovery_detected = None
@@ -300,7 +301,7 @@ class fw2kml():
             time_past_launch = float(apogee["unixtime"]) -\
                     float(events["launch_time"][flight_num]["unixtime"])
             elem_doc.append(self.create_pin(f"apogee_{flight_id}",
-                f"Flight #{flight_id} Apogee ({apogee_alt_feet:.2f}ft, T+{time_past_launch:.2f}s)",
+                f"Flight #{flight_id} Apogee {apogee_alt_feet:.2f}ft, T+{time_past_launch:.2f}s",
                 (str(apogee["coord"][0]), str(apogee["coord"][1]),
                  str(feet_to_meters(apogee["coord"][2])))))
 
@@ -316,9 +317,11 @@ class fw2kml():
                         (str(deployment["coord"][0]), str(deployment["coord"][1]),
                          str(feet_to_meters(deployment["coord"][2])))))
                 else:
+                    recovery_alt_feet = float(deployment["coord"][2]) - float(launch_site[2])
                     # Presume we had recovery deployment
                     elem_doc.append(self.create_pin(f"recovery_{num}_{flight_id}",
-                        f"Flight #{flight_id} Deployment #{num+1} T+{time_past_launch:.2f}s",
+                        f"Flight #{flight_id} Deployment #{num+1} {recovery_alt_feet:.2f}ft,"+
+                        f" T+{time_past_launch:.2f}s",
                         (str(deployment["coord"][0]), str(deployment["coord"][1]),
                          str(feet_to_meters(deployment["coord"][2])))))
 
