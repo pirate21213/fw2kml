@@ -318,7 +318,7 @@ class fw2kml():
                 else:
                     # Presume we had recovery deployment
                     elem_doc.append(self.create_pin(f"recovery_{num}_{flight_id}",
-                        f"Flight #{flight_id} Deployment #{num:d+1} T+{time_past_launch:.2f}s",
+                        f"Flight #{flight_id} Deployment #{num+1} T+{time_past_launch:.2f}s",
                         (str(deployment["coord"][0]), str(deployment["coord"][1]),
                          str(feet_to_meters(deployment["coord"][2])))))
 
