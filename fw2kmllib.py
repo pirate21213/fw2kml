@@ -19,8 +19,29 @@ from xml.etree.ElementTree import ElementTree, Element, SubElement
 from pathlib import Path
 from os import path
 
+# Constant Configs
+
+# How visible the flight path
 FLIGHTPATH_PERCENT_OPAQUE = 75
+
+# Just a name for the pins for common use
 PIN_STYLE_NAME="PUSH_PIN"
+
+# Used for event pins
+TRIGGER_VSPEED_LAUNCH_FPS=2
+
+# Decent speed recovery detection, if acceleration is greater than
+# this number it resets the detection until it falls below that number
+# In theory, there should be zero acceleration when a chute reaches
+# terminal velocity, and when the rocket has landed
+TRIGGER_ACCEL_VERT_RECOVERY_FPS=10
+# To detect if the rocket is falling
+TRIGGER_VSPEED_RECOVERY_FPS=-1
+
+# Number of rows to check before adding a recovery deployment
+# Prevents false positives
+RD_CHECK_ROWS = 5
+
 
 feet_to_meters = lambda feet_str: float(feet_str) * 0.3048
 
@@ -98,63 +119,112 @@ class fw2kml():
 
         return elem_style
 
-    # TODO Reduce the number of parameters for this, maybe a dictionary for indexes
     @staticmethod
-    def process_coordinates(data_rows, unixtimeindex, lonindex, latindex, altindex,\
-            export_from_ifip, badtimedata):
-        # Create list of coordinates that pass error check
-        totalflights = 1
+    def process_coordinates(data_rows, column_indicies, export_from_ifip, badtimedata):
         coords = []
         flightcoords = []
         max_altitude = []
         launch_site = []
         recovery_site = []
+        launch_time = []
+        recovery_deployments = [[]]
+        vert_speed = [[]]
+        decent_speed_changed = False
+        last_recovery_detected = None
+
         for i, row in enumerate(data_rows):
             # unclear what it's skipping for
             if export_from_ifip and float(row[5]) <= 0:
                 print("Bad data, skipping", row[5])
+            elif row[column_indicies["unixtime"]] == data_rows[i-1][column_indicies["unixtime"]]:
+                # Skip duplicates; I've notice these cause problems with post processing, and 
+                # add more data needlessly to the file
+                continue
             else:
                 # If 1 minute goes by, consider it a new flight - If theres badtimedata, just
                 # let it dump everything into one coordstring
-                if badtimedata or i == 0 or float(row[unixtimeindex])-float(last_time_unix) < 60:
-                    altitude_meters = str(feet_to_meters(row[altindex]))
-                    coords.append("{},{},{}".format(row[lonindex], row[latindex], altitude_meters))
+                if badtimedata or i == 0 or\
+                    float(row[column_indicies["unixtime"]])-float(last_time_unix) < 60:
+                    if len(coords) > 0:
+                        vert_speed[-1].append(float(row[column_indicies["alt"]]) -
+                            float(data_rows[i-1][column_indicies["alt"]]))
+                        if vert_speed[-1][-1] > TRIGGER_VSPEED_LAUNCH_FPS and \
+                            len(launch_time) < len(vert_speed):
+                            launch_time.append(
+                                {"unixtime":data_rows[i-1][column_indicies["unixtime"]],
+                                "coord":(data_rows[i-1][column_indicies["lon"]],
+                                        data_rows[i-1][column_indicies["lat"]],
+                                        data_rows[i-1][column_indicies["alt"]])})
+
+                        # When the acceleration jumps, and the rocket has launched,
+                        # guess we had recovery deployment
+                        if len(coords) > 1 and len(launch_time) == len(vert_speed) \
+                            and decent_speed_changed and vert_speed[-1][-1] <\
+                            TRIGGER_VSPEED_RECOVERY_FPS:
+                            last_recovery_detected = (i,
+                                {"unixtime":row[column_indicies["unixtime"]],
+                                 "coord":(row[column_indicies["lon"]],
+                                          row[column_indicies["lat"]],
+                                          row[column_indicies["alt"]])})
+                            decent_speed_changed = False
+                        elif len(launch_time) == len(vert_speed) and abs(vert_speed[-1][-2] -\
+                                vert_speed[-1][-1]) > TRIGGER_ACCEL_VERT_RECOVERY_FPS:
+                            decent_speed_changed = True
+                        elif last_recovery_detected is not None and\
+                            i - last_recovery_detected[0] > RD_CHECK_ROWS:
+                            # Parachutes are finicky (sp?) so it's best to check a few rows first
+                            recovery_deployments[-1].append(last_recovery_detected[1])
+                            last_recovery_detected = None
+
+                    altitude_meters = str(feet_to_meters(row[column_indicies["alt"]]))
+                    coords.append("{},{},{}".format(
+                        row[column_indicies["lon"]], row[column_indicies["lat"]], altitude_meters))
 
                     # Using first data point as launch site location for first flight
                     if i == 0:
-                        launch_site.append((row[lonindex], row[latindex], row[altindex]))
+                        launch_site.append((row[column_indicies["lon"]],
+                            row[column_indicies["lat"]], row[column_indicies["alt"]]))
 
                     # Checking for apogee
-                    if len(max_altitude) < totalflights:
-                        max_altitude.append((row[lonindex], row[latindex], row[altindex]))
-                    elif float(max_altitude[totalflights-1][2]) < float(row[altindex]):
-                        max_altitude[totalflights-1] = (row[lonindex], row[latindex], row[altindex])
+                    if len(max_altitude) < len(flightcoords) + 1:
+                        max_altitude.append({"unixtime":row[column_indicies["unixtime"]],
+                            "coord":(row[column_indicies["lon"]],
+                            row[column_indicies["lat"]], row[column_indicies["alt"]])})
+                    elif float(max_altitude[len(flightcoords)]["coord"][2]) <\
+                            float(row[column_indicies["alt"]]):
+                        max_altitude[len(flightcoords)] = {"unixtime":
+                            row[column_indicies["unixtime"]], "coord":(row[column_indicies["lon"]],
+                            row[column_indicies["lat"]], row[column_indicies["alt"]])}
                 else:
                     # Use last data point as recovery site location
-                    recovery_site.append((data_rows[i-1][lonindex],\
-                            data_rows[i-1][latindex], data_rows[i-1][altindex]))
+                    recovery_site.append((data_rows[i-1][column_indicies["lon"]],
+                        data_rows[i-1][column_indicies["lat"]],
+                        data_rows[i-1][column_indicies["alt"]]))
 
                     # Iterate flight data
-                    totalflights += 1
-                    coordstring = ' '.join(coords)
-                    flightcoords.append(coordstring)
+                    flightcoords.append(' '.join(coords))
+                    vert_speed.append([])
+                    recovery_deployments.append([])
                     coords = []
 
                     # Add new launch site
-                    launch_site.append((row[lonindex], row[latindex], row[altindex]))
+                    launch_site.append((row[column_indicies["lon"]], row[column_indicies["lat"]],
+                        row[column_indicies["alt"]]))
 
-            last_time_unix = row[unixtimeindex]
+            last_time_unix = row[column_indicies["unixtime"]]
 
         # Once we leave the loop block we have to do this too for the last flight in file
-        recovery_site.append((row[lonindex], row[latindex], row[altindex]))
+        recovery_site.append((data_rows[-1][column_indicies["lon"]],
+            data_rows[-1][column_indicies["lat"]], data_rows[-1][column_indicies["alt"]]))
 
         # Convert coordinate list into coordinate string with ' ' as delimiter
         coordstring = ' '.join(coords)
         flightcoords.append(coordstring)
 
-        events = {"launch_site":launch_site,"apogee":max_altitude,"recovery_site":recovery_site}
+        events = {"launch_site":launch_site,"apogee":max_altitude,"recovery_site":recovery_site,
+                  "launch_time":launch_time,"recovery_deployments":recovery_deployments}
 
-        return (totalflights, flightcoords, events)
+        return (len(flightcoords), flightcoords, events)
 
     @staticmethod
     def get_unused_filename(dropped_file):
@@ -172,6 +242,7 @@ class fw2kml():
 
     @staticmethod
     def get_random_rgba_color(percent_opaque=FLIGHTPATH_PERCENT_OPAQUE):
+        # FIXME For some reason this generates a transparent color occassionally
         # Super lazy way to generate random colors
         # basically doing randhex(0x0, 0xFFFFFF) but in decimal
         color = str(hex(randint(0,int(0xFFFFFF))))[2:].rjust(6, '0') +\
@@ -188,15 +259,19 @@ class fw2kml():
         # pylint doesn't like this, and it seems to be unrecommended to do this
         kml_tree._setroot(elem_kml)
 
-        # Note: I don't think attribute id is needed
         elem_doc = SubElement(elem_kml, "Document", attrib={"id":"1"})
-        elem_name = SubElement(elem_doc, "Name", attrib={})
+
+        elem_name = SubElement(elem_doc, "Name")
         elem_name.text = "fw2kml FeatherWeight KML"
+
+        # generate pin style
         elem_doc.append(self.generate_pin_style())
 
         for flight_num in range(totalflights):
-            # A convaluted way of starting at 2 and reserving 5 id numbers per style
             flight_id = flight_num+1
+
+            # Generate flight plot
+            # A convaluted way of starting at 2 and reserving 5 id numbers per style
             id_base = (flight_num + 2) * 5 - 2
             color = self.get_random_rgba_color()
             elem_doc.append(self.create_style_elem(
@@ -206,20 +281,51 @@ class fw2kml():
                 id_base-4, flight_id, id_base-2, id_base-3, flightcoords[flight_num]
             ))
 
+            # Generate launchsite pin
             launch_site = events["launch_site"][flight_num]
-            elem_doc.append(self.create_pin(f"launchsite_{flight_id}",\
-                f"Flight #{flight_id} Launch Site",\
+            elem_doc.append(self.create_pin(f"launchsite_{flight_id}",
+                f"Flight #{flight_id} Launch Site",
                 (str(launch_site[0]), str(launch_site[1]), str(feet_to_meters(launch_site[2])))))
 
-            apogee = events["apogee"][flight_num]
-            apogee_alt_feet = float(apogee[2]) - float(launch_site[2])
-            elem_doc.append(self.create_pin(f"launchsite_{flight_id}",\
-                f"Flight #{flight_id} Apogee ({apogee_alt_feet}ft)",\
-                (str(apogee[0]), str(apogee[1]), str(feet_to_meters(apogee[2])))))
+            # Generate launch pin
+            launch_time = events["launch_time"][flight_num]
+            elem_doc.append(self.create_pin(f"launchpin_{flight_id}",
+                f"Flight #{flight_id} Launch Time T+0",
+                (str(launch_time["coord"][0]), str(launch_time["coord"][1]),
+                 str(feet_to_meters(launch_time["coord"][2])))))
 
+            # Generate apogee pin
+            apogee = events["apogee"][flight_num]
+            apogee_alt_feet = float(apogee["coord"][2]) - float(launch_site[2])
+            time_past_launch = float(apogee["unixtime"]) -\
+                    float(events["launch_time"][flight_num]["unixtime"])
+            elem_doc.append(self.create_pin(f"apogee_{flight_id}",
+                f"Flight #{flight_id} Apogee ({apogee_alt_feet:.2f}ft, T+{time_past_launch:.2f}s)",
+                (str(apogee["coord"][0]), str(apogee["coord"][1]),
+                 str(feet_to_meters(apogee["coord"][2])))))
+
+            # Generate recovery device pins
+            recovery_deployments = events["recovery_deployments"][flight_num]
+            for num, deployment in enumerate(recovery_deployments):
+                time_past_launch = float(deployment["unixtime"]) -\
+                        float(events["launch_time"][flight_num]["unixtime"])
+                if num == len(recovery_deployments) - 1:
+                    # Assume we've landed
+                    elem_doc.append(self.create_pin(f"landing_{flight_id}",
+                        f"Flight #{flight_id} Landing T+{time_past_launch:.2f}s",
+                        (str(deployment["coord"][0]), str(deployment["coord"][1]),
+                         str(feet_to_meters(deployment["coord"][2])))))
+                else:
+                    # Presume we had recovery deployment
+                    elem_doc.append(self.create_pin(f"recovery_{num}_{flight_id}",
+                        f"Flight #{flight_id} Deployment #{num:d+1} T+{time_past_launch:.2f}s",
+                        (str(deployment["coord"][0]), str(deployment["coord"][1]),
+                         str(feet_to_meters(deployment["coord"][2])))))
+
+            # Generate recovery site pin
             recovery_site = events["recovery_site"][flight_num]
-            elem_doc.append(self.create_pin(f"recoverysite_{flight_id}",\
-                f"Flight #{flight_id} Recovery Site", (str(recovery_site[0]), \
+            elem_doc.append(self.create_pin(f"recoverysite_{flight_id}",
+                f"Flight #{flight_id} Recovery Site", (str(recovery_site[0]),
                 str(recovery_site[1]), str(feet_to_meters(recovery_site[2])))))
 
         return kml_tree
@@ -233,7 +339,7 @@ class fw2kml():
             csvreader = csv.reader(csvfile)
             fields = next(csvreader)
             for row in csvreader:
-                # Skip rows with column header names
+               # Skip rows with column header names
                 if "DATE" in row: continue
                 rows.append(row)
 
@@ -252,12 +358,14 @@ class fw2kml():
         rows, fields = self.load_and_process_csv(dropped_file)
 
         # Figure out which field is alt, lon, and lat
-        latindex = None
-        lonindex = None
-        altindex = None
-        unixtimeindex = None
-        timeindex = None
-        dateindex = None
+        column_indicies = {
+            "lat":None,
+            "lon":None,
+            "alt":None,
+            "unixtime":None,
+            "time":None,
+            "date":None
+        }
 
         export_from_ifip = True
         for column_name in ["LAT", "LON", "ALT"]:
@@ -273,50 +381,51 @@ class fw2kml():
                     break
 
         if export_from_ifip:
-            latindex = fields.index("LAT")
-            lonindex = fields.index("LON")
-            altindex = fields.index("ALT")
-
+            column_indicies["lat"] = fields.index("LAT")
+            column_indicies["lon"] = fields.index("LON")
+            column_indicies["alt"] = fields.index("ALT")
             if "UNIXTIME" in fields:
-                unixtimeindex = fields.index("UNIXTIME")
+                column_indicies["unixtime"] = fields.index("UNIXTIME")
             elif "TIME" in fields and "DATE" in fields:
-                timeindex = fields.index("TIME")
-                dateindex = fields.index("DATE")
-                unixtimeindex = fields.index("TIME")
+                column_indicies["time"] = fields.index("TIME")
+                column_indicies["date"] = fields.index("DATE")
+                column_indicies["unixtime"] = fields.index("TIME")
         elif export_blue_raven:
-            latindex = fields.index("TRACKER Lat")
-            lonindex = fields.index("TRACKER Lon")
-            altindex = fields.index("TRACKER Alt asl")
-            timeindex = fields.index("TIME")
-            dateindex = fields.index("DATE")
-            unixtimeindex = fields.index("TIME")
-
+            column_indicies["lat"] = fields.index("TRACKER Lat")
+            column_indicies["lon"] = fields.index("TRACKER Lon")
+            column_indicies["alt"] = fields.index("TRACKER Alt asl")
+            column_indicies["time"] = fields.index("TIME")
+            column_indicies["date"] = fields.index("DATE")
+            column_indicies["unixtime"] = fields.index("TIME")
         else:
             print("Cannot process file. Necessary columns are missing/not labeled.")
             print("Currently only acccepts csv exports from iFIP and Blue Raven.")
             return
 
         # TODO move this into a helper function... it depends on "rows" at the moment
+        # TODO it seems like time becomes an integer at some point, or the fractions of 
+        # a second are lost?
         # which is an instance variable in the convertFile function
-        if timeindex is not None and dateindex is not None:
+        if column_indicies["time"] is not None and column_indicies["date"] is not None:
             # Convert DATE and TIME into UNIXTIME (will reuse the TIME field temporarily)
             for row in rows:
                 # Format date and time into a usable string
-                formatted_datetime = "{}_{}".format(row[dateindex], row[timeindex])
+                formatted_datetime = "{}_{}".format(
+                        row[column_indicies["date"]], row[column_indicies["time"]])
 
                 # convert time field into unixtime   Example: 2022-11-05_10:43:00.789 to UNIXTIME
-                row[timeindex] = time.mktime(datetime.datetime.strptime(\
+                row[column_indicies["time"]] = time.mktime(datetime.datetime.strptime(
                         formatted_datetime, "%Y-%m-%d_%H:%M:%S.%f").timetuple())
 
-        if unixtimeindex is not None:
-            rows = sorted(rows, key=operator.itemgetter(unixtimeindex))
+        if column_indicies["unixtime"] is not None:
+            rows = sorted(rows, key=operator.itemgetter(column_indicies["unixtime"]))
         else:
             print("Could not find TIME or DATE, will not sort for time jitter or split flights.")
             badtimedata = True
 
-        # Create coordinate list (TODO clean up the number of parameters)
-        totalflights, flightcoords, events = self.process_coordinates(\
-            rows, unixtimeindex, lonindex, latindex, altindex, export_from_ifip, badtimedata)
+        # Create coordinate list
+        totalflights, flightcoords, events = self.process_coordinates(
+            rows, column_indicies, export_from_ifip, badtimedata)
 
         # Get a new filename
         outfile_name = self.get_unused_filename(dropped_file)
