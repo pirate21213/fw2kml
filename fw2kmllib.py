@@ -378,7 +378,7 @@ class fw2kml():
 
         export_blue_raven = not export_from_ifip
         if not export_from_ifip:
-            for column_name in ["GS Lat", "GS Lon", "GS Alt asl"]:
+            for column_name in ["TRACKER Lat", "TRACKER Lon", "TRACKER Alt asl"]:
                 if column_name not in fields:
                     export_blue_raven = False
                     break
