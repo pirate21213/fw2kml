@@ -1,1 +1,5 @@
 ./TestCases
+./__pycache__
+*.exe
+*.dll
+*.zip
